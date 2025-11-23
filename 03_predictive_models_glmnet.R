@@ -4,7 +4,6 @@
 
 library(tidyverse)
 library(glmnet)
-library(randomForest)
 library(pROC)
 
 set.seed(123)
@@ -84,64 +83,3 @@ coef_df <- data.frame(
   Coefficient = as.numeric(coef_clin_mrs)
 )
 write.csv(coef_df, "outputs/logistic_glmnet_coefficients_MRS.csv", row.names = FALSE)
-
-#-------------------------
-# Random Forest with M-values
-#-------------------------
-
-# Load M-value matrix (rows = CpGs, cols = samples); top 60 CpGs
-mval_mat <- readRDS("data/Mvalue_top60_TCGA.rds")
-
-# Ensure order of columns matches dat$patient_ID
-mval_mat <- mval_mat[, dat$patient_ID, drop = FALSE]
-
-# Build RF train / test data
-mval_train <- t(mval_mat[, train_idx, drop = FALSE])
-mval_test  <- t(mval_mat[, test_idx <- setdiff(seq_len(nrow(dat)), train_idx), drop = FALSE])
-
-rf_train <- train %>%
-  select(response_bin, Age, Stage, HPV, Alcohol.History,
-         Smoking.History, sub_site_grouped) %>%
-  bind_cols(as.data.frame(mval_train))
-
-rf_test <- test %>%
-  select(response_bin, Age, Stage, HPV, Alcohol.History,
-         Smoking.History, sub_site_grouped) %>%
-  bind_cols(as.data.frame(mval_test))
-
-rf_train$response_bin <- factor(rf_train$response_bin, levels = c(0,1))
-
-# Example RF (you can tune mtry, ntree, sampsize as in your analysis)
-fit_rf <- randomForest(
-  response_bin ~ .,
-  data = rf_train,
-  ntree = 1000,
-  importance = TRUE
-)
-
-# Predict on test
-pred_rf <- predict(fit_rf, newdata = rf_test, type = "prob")[, "1"]
-
-roc_rf <- roc(y_test, as.numeric(pred_rf), quiet = TRUE)
-auc(roc_rf)
-
-# Concordant partial AUC: FPR ≤ 0.30, TPR ≥ 0.70
-# This corresponds roughly to specificity ≥ 0.70
-pAUC <- auc(
-  roc_rf,
-  partial.auc = c(0.7, 1),  # specificity range
-  partial.auc.focus = "specificity",
-  partial.auc.correct = TRUE
-)
-
-# Normalize to [0,1]
-pAUC_norm <- as.numeric(pAUC) / (1 - 0.7)  # divide by maximum area in that region
-pAUC_norm
-
-# Save AUC/pAUC results
-perf_df <- tibble(
-  model = c("Clin_only", "Clin+MRS", "RF_Mvalues"),
-  AUC   = c(auc(roc_clin), auc(roc_clin_mrs), auc(roc_rf))
-)
-
-write.csv(perf_df, "outputs/predictive_model_AUCs.csv", row.names = FALSE)
