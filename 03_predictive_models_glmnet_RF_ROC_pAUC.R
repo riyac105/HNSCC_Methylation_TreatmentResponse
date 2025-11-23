@@ -12,7 +12,7 @@ set.seed(123)
 # Load merged data (includes risk_score)
 dat <- readRDS("outputs/dat_TCGA_MRS_clinical.rds")
 
-# Binary response: 1 = Nonresponder, 0 = Responder (adjust to your coding)
+# Binary response: 1 = Nonresponder, 0 = Responder
 dat <- dat %>%
   mutate(
     response_bin = ifelse(Treatment.Response %in% c("Progressive Disease",
